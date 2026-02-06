@@ -226,18 +226,13 @@ combined_data <- combined_data %>%
 world_sf <- world_sf %>%
   mutate(adm0_a3 = toupper(trimws(as.character(adm0_a3))))
 
-#Check iso codes for differences
+#Check ISO3 codes for differences between the two files before joining 
 world_iso3 <- sort(unique(world_sf$adm0_a3))
 data_iso3  <- sort(unique(combined_data$iso3))
+setdiff(world_iso3, data_iso3) %>% head(30) %>% print() # Check the codes in the shapefile that aren't in the data 
+setdiff(data_iso3, world_iso3) %>% head(30) %>% print()  #Check the codes in the data that aren't in the shapefile 
 
-# Check the codes in the shapefile that aren't in the data 
-setdiff(world_iso3, data_iso3) %>% head(30) %>% print()
-
-#  Check the codes in the data that aren't in the shapefile 
-setdiff(data_iso3, world_iso3) %>% head(30) %>% print()
-
-#Change codes that are inconsistent in the shapefile
-#Change codes that are inconsistent in the shapefile
+#Change codes that are inconsistent in the shapefile with the combined data file 
 world_sf <- world_sf %>%
   mutate(
     iso3 = case_when(
@@ -247,36 +242,34 @@ world_sf <- world_sf %>%
     )
   )
 
-world_data <- world_sf %>%
-  left_join(combined_data, by = "iso3")
-
-####Create mapping themes, folders and colour palettes  ####
-# Ensure output folders exist
-
-# Make a cropped Europe object (only for European panels) 
-# Filter to Europe first (so cropping won't accidentally keep e.g. Americas),
-# then crop to a bbox with xmin = -40 (and sensible lat/lon bounds to keep islands).
-europe_continents <- c("Europe")
-europe_bbox <- st_bbox(c(xmin = -40, ymin = 20, xmax = 60, ymax = 85),
-                       crs = st_crs(world_data))
-
-# world_data_europe: first filter by continent, then crop geometry to bbox
-world_data_europe <- world_data %>%
-  filter(continent %in% europe_continents) %>%
-  st_make_valid() %>%          # defensive: fix any invalid geometries
-  st_crop(europe_bbox)
-
-#Define the fleming countries
-fleming_countries <- c(
-  "Senegal","Sierra Leone","Ghana","Nigeria","Eswatini","Malawi","Kenya","Rwanda",
-  "Tanzania","Uganda","Zambia","Zimbabwe","Bangladesh","Bhutan","India","Nepal",
-  "Pakistan","Sri Lanka","Timor-Leste","Indonesia","Laos","Papua New Guinea","Vietnam"
+# 1. Define Fleming ISO3 list
+fleming_iso3_list <- c(
+  "SEN", "SLE", "GHA", "NGA", "SWZ", "MWI", "KEN", "RWA", 
+  "TZA", "UGA", "ZMB", "ZWE", "BGD", "BTN", "IND", "NPL", 
+  "PAK", "LKA", "TLS", "IDN", "LAO", "PNG", "VNM"
 )
 
-# 1) Greys for maps (global + Fleming Fund specifics)
+# 2. Prepare Map Data
+world_data <- world_sf %>% 
+  mutate(iso3 = case_when(
+    adm0_a3 == "SDS" ~ "SSD", 
+    adm0_a3 == "PSX" ~ "PSE", 
+    TRUE ~ adm0_a3
+  )) %>%
+  left_join(combined_data %>% mutate(iso3 = toupper(trimws(iso3))), by = "iso3")
+
+# 3. Define Cropped Europe
+europe_bbox <- st_bbox(c(xmin = -40, ymin = 20, xmax = 60, ymax = 85), crs = st_crs(world_data))
+world_data_europe <- world_data %>% 
+  filter(continent == "Europe") %>% 
+  st_make_valid() %>%
+  st_crop(europe_bbox)
+
+#### Create mapping themes, folders and colour palettes  ####
+# 4. Global Color Definitions
 na_colour <- "grey85"
-fleming_bg_colour <- "grey92"
-fleming_na_colour <- "grey70"
+fleming_bg_colour <- "grey92" #Non flemming countries
+fleming_na_colour <- "grey50"
 
 colours <- list(
   glass = c("Yes" = "#1B9E77", "No" = "#D95F02"),
@@ -300,37 +293,44 @@ theme_map <- function() {
     )
 }
 
-# 6. Helper: Match column to palette
+#### Match column to palette function definition ####
 match_pal <- function(col) {
   case_when(
-    str_detect(col, "glass_status") ~ "glass", 
-    str_detect(col, "glass_data") ~ "glass_sub", 
-    str_detect(col, "national_reference") ~ "nrl", 
+    str_detect(col, "glass_data")   ~ "glass_sub", # Check specific data metric first
+    str_detect(col, "glass_status") ~ "glass",     # Then check general status
+    str_detect(col, "national_ref") ~ "nrl", 
     str_detect(col, "surveillance") ~ "net", 
     TRUE ~ "genomes"
   )
 }
 
-# 7. Updated make_map with Dynamic "Non-Fleming" Legend
-# 7. Updated make_map with Fixed Dynamic Legend Logic
-make_map <- function(data, fill_col, title, palette) {
+#### Create Make Map Function ####
+make_map <- function(data, fill_col, title, palette, is_fleming = FALSE) {
   df <- data %>% mutate(.temp_fill = as.character(.data[[fill_col]]))
-  df$.temp_fill[is.na(df$.temp_fill)] <- "NA"
   
-  # Define Levels
-  if (fill_col %in% c("number_of_priority_genomes_metric", "number_of_critical_genomes_metric", "number_of_klebsiella_genomes_metric")) {
-    levels_vec <- c("1-50", "50-100", "100-500", "500-1000", "1000-5000", "5000-10000", "10000-50000", "50000+", "CONTEXT", "NA")
-  } else if (fill_col == "surveillance_network_metric") {
-    levels_vec <- c("Yes", "Partial", "No", "CONTEXT", "NA")
-  } else if (fill_col == "glass_data_metric") {
-    levels_vec <- c("Yes", "No", "Not Enrolled", "CONTEXT", "NA")
+  # 1. NEW LOGIC: Distinguish between Global NA and Fleming NA
+  df <- df %>%
+    mutate(.temp_fill = case_when(
+      .temp_fill == "CONTEXT" ~ "CONTEXT",
+      # If data is missing AND it's a Fleming Fund country, use a dark NA label
+      (is.na(.temp_fill) | .temp_fill == "NA") & (iso3 %in% fleming_iso3_list) ~ "NA_FLEMING",
+      # Standard Global NA
+      is.na(.temp_fill) | .temp_fill == "NA" ~ "NA",
+      TRUE ~ .temp_fill
+    ))
+  
+  # 2. Define Levels (Include the new NA_FLEMING level)
+  if (str_detect(fill_col, "genomes")) {
+    levels_vec <- c("1-50", "50-100", "100-500", "500-1000", "1000-5000", 
+                    "5000-10000", "10000-50000", "50000+", "CONTEXT", "NA_FLEMING", "NA")
   } else {
-    levels_vec <- c("Yes", "No", "CONTEXT", "NA")
+    # Handles capacity metrics
+    levels_vec <- c("Yes", "Partial", "No", "Not Enrolled", "CONTEXT", "NA_FLEMING", "NA")
   }
   
   df$.temp_fill <- factor(df$.temp_fill, levels = levels_vec)
   
-  # Ghost Geometry Logic
+  # 3. Phantom Geometry
   missing_levels <- setdiff(levels_vec, unique(as.character(df$.temp_fill)))
   if (length(missing_levels) > 0) {
     phantom_sf <- st_sf(data.frame(.temp_fill = factor(missing_levels, levels = levels_vec)), 
@@ -338,47 +338,49 @@ make_map <- function(data, fill_col, title, palette) {
     df <- bind_rows(df, phantom_sf)
   }
   
-  # --- FIXED LEGEND LOGIC ---
-  is_fleming_map <- grepl("Fleming", title)
-  
-  # Define display labels
-  label_vec <- setNames(levels_vec, levels_vec)
-  label_vec["CONTEXT"] <- "Non-Fleming"
-  
-  # Ensure breaks and labels match in length
-  if (is_fleming_map) {
-    plot_breaks <- levels_vec
-    plot_labels <- label_vec
-  } else {
-    # Remove CONTEXT from both breaks and labels for non-Fleming maps
-    plot_breaks <- setdiff(levels_vec, "CONTEXT")
-    plot_labels <- label_vec[plot_breaks] 
-  }
-  # --------------------------
-  
+  # 4. Color Assignment (Updated for contrast)
   final_pal <- palette
-  if (!"CONTEXT" %in% names(final_pal)) final_pal["CONTEXT"] <- fleming_bg_colour
-  if (!"NA" %in% names(final_pal))      final_pal["NA"]      <- na_colour
+  final_pal["CONTEXT"]    <- "#F5F5F5" # Very pale grey (Non-Fleming)
+  final_pal["NA_FLEMING"] <- "#707070" # Dark grey (Fleming country, no data)
+  final_pal["NA"]         <- "#E0E0E0" # Medium light grey (Global NA)
   
+  # 5. Legend Display Logic
+  label_vec <- setNames(levels_vec, levels_vec)
+  label_vec["CONTEXT"]    <- "Non-Fleming"
+  label_vec["NA_FLEMING"] <- "No Data" # Label for dark grey box
+  
+  # Define what breaks to show in the legend
+  if (is_fleming) {
+    # Show "Non-Fleming" and "No Data" (the darker Fleming NA)
+    plot_breaks <- setdiff(levels_vec, "NA") 
+  } else {
+    # Hide Fleming-specific labels for non-Fleming maps
+    plot_breaks <- setdiff(levels_vec, c("CONTEXT", "NA_FLEMING"))
+  }
+  plot_labels <- label_vec[plot_breaks]
+  
+  # 6. Plot
   ggplot(df) +
     geom_sf(aes(fill = .temp_fill), colour = "grey20", linewidth = 0.1) +
     scale_fill_manual(
       values = final_pal, 
-      breaks = plot_breaks, # Dynamically includes or excludes CONTEXT
-      labels = plot_labels, # Matches length of plot_breaks
+      breaks = plot_breaks, 
+      labels = plot_labels, 
       drop = FALSE,
       guide = guide_legend(override.aes = list(colour = "grey20", linewidth = 0.2))
     ) +
     labs(title = title, fill = NULL) + 
     theme_map()
 }
-# 8. Panel Functions
-make_panel <- function(data, region_name, palettes) {
+
+
+#### Create Panel Functions ####
+make_panel <- function(data, region_name, palettes, is_fleming = FALSE) {
   plots <- list(
-    make_map(data, "glass_status_metric", "Enrolled in GLASS", palettes$glass),
-    make_map(data, "glass_data_metric", "GLASS Data Submitted", palettes$glass_sub),
-    make_map(data, "national_reference_lab_metric", "National Ref Lab", palettes$nrl),
-    make_map(data, "surveillance_network_metric", "Sentinel Network", palettes$net)
+    make_map(data, "glass_status_metric", "Enrolled in GLASS", palettes$glass, is_fleming),
+    make_map(data, "glass_data_metric", "GLASS Data Submitted", palettes$glass_sub, is_fleming),
+    make_map(data, "national_reference_lab_metric", "National Ref Lab", palettes$nrl, is_fleming),
+    make_map(data, "surveillance_network_metric", "Sentinel Network", palettes$net, is_fleming)
   )
   plot_grid(
     ggdraw() + draw_label(region_name, fontface = "bold", size = 18), 
@@ -387,10 +389,10 @@ make_panel <- function(data, region_name, palettes) {
   )
 }
 
-make_genomics_panel <- function(data, region_name, palettes) {
+make_genomics_panel <- function(data, region_name, palettes, is_fleming = FALSE) {
   plots <- list(
-    make_map(data, "number_of_priority_genomes_metric", "Priority Pathogen Genomes", palettes$genomes),
-    make_map(data, "number_of_critical_genomes_metric", "Critical Pathogen Genomes", palettes$genomes)
+    make_map(data, "number_of_priority_genomes_metric", "Priority Pathogen Genomes", palettes$genomes, is_fleming),
+    make_map(data, "number_of_critical_genomes_metric", "Critical Pathogen Genomes", palettes$genomes, is_fleming)
   )
   plot_grid(
     ggdraw() + draw_label(paste(region_name, "Genomics"), fontface = "bold", size = 18), 
@@ -398,8 +400,7 @@ make_genomics_panel <- function(data, region_name, palettes) {
     ncol = 1, rel_heights = c(0.12, 1)
   )
 }
-
-# 9. EXECUTION LOOP
+#### Set up the Execution loop ####
 regions <- list(
   "Europe"="Europe", 
   "Asia"="Asia", 
@@ -416,32 +417,50 @@ metrics_capacity <- list(
   list(col="surveillance_network_metric", title="Network")
 )
 
+metrics_genomics <- list(
+  list(col = "number_of_priority_genomes_metric", title = "Priority Pathogen Genomes"),
+  list(col = "number_of_critical_genomes_metric", title = "Critical Priority Pathogen Genomes")
+)
+
+#### Run execution loop ####
 for (r in all_regions) {
-  # Subset data
-  plot_data <- if(r == "Worldwide") {
-    world_data 
-  } else if(r == "Europe") {
-    world_data_europe 
+  
+  # 1. First, subset the data as you currently do
+  if (r == "Worldwide") {
+    plot_data <- world_data
+  } else if (r == "Europe") {
+    plot_data <- world_data_europe
+  } else if (r == "Central & South America") {
+    plot_data <- world_data %>% 
+      filter(continent == "South America" | subregion == "Central America" | subregion == "Caribbean")
   } else {
-    world_data %>% filter(continent %in% regions[[r]])
+    plot_data <- world_data %>% filter(continent %in% regions[[r]])
   }
   
-  # Fleming Logic: Mask non-funded countries as CONTEXT
-  if (r == "Fleming") {
+  current_is_fleming <- (r == "Fleming")
+  
+  if (current_is_fleming) {
+    # This turns all non-Fleming countries in Africa/Asia to "CONTEXT"
     plot_data <- plot_data %>% 
       mutate(across(ends_with("_metric"), ~if_else(iso3 %in% fleming_iso3_list, as.character(.x), "CONTEXT")))
   }
   
   # Save Individual Capacity Maps
   for (m in metrics_capacity) {
-    p <- make_map(plot_data, m$col, paste(r, m$title), colours[[match_pal(m$col)]])
+    p <- make_map(plot_data, m$col, paste(r, "–", m$title), colours[[match_pal(m$col)]], 
+                  is_fleming = current_is_fleming)
     ggsave(paste0("individual maps/", r, "_", m$col, ".png"), p, width = 8, height = 5)
   }
   
   # Save Regional Panels
-  ggsave(paste0("regional panels/", r, "_panel.png"), make_panel(plot_data, r, colours), width = 14, height = 10, bg = "white")
-  ggsave(paste0("regional panels/", r, "_genomics.png"), make_genomics_panel(plot_data, r, colours), width = 14, height = 6, bg = "white")
+  ggsave(paste0("regional panels/", r, "_panel.png"), 
+         make_panel(plot_data, r, colours, is_fleming = current_is_fleming),
+         width = 14, height = 10, bg = "white")
+  
+  # Save Genomics Panels
+  ggsave(paste0("regional panels/", r, "_genomics.png"), 
+         make_genomics_panel(plot_data, r, colours, is_fleming = current_is_fleming),
+         width = 14, height = 6, bg = "white")
 }
-
 
 
