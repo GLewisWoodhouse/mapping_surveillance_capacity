@@ -211,7 +211,11 @@ All maps can be regenerated using the R scripts in this folder, assuming the sam
 * Output regional and global figures as static images
 
 ---
-
+## Known issues to tweak 
+* Fleming countries that have NA in non-fleming region panels are showing as dark grey when they are NA
+* Spacing in the capacity panel of four maps is too large between maps
+* Spacing between panel title and maps is too large
+--- 
 ## Contact / ownership
 
-For questions about data sources, methods, or interpretation, please contact the project author or CGPS AMR surveillance team.
+For questions about data sources, methods, or interpretation, please contact the project author or CGPS team.
