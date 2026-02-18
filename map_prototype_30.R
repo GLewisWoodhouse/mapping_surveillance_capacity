@@ -99,33 +99,41 @@ combined_data <- glass_data_2023 %>%
   mutate(
     iso3 = toupper(trimws(as.character(iso3))),
     amr_ncc_metric = case_when(
-      amr_ncc == "Established" ~ "Yes",
-      amr_ncc == "Establishment in progress" ~ "Partial",
-      amr_ncc == "Not established" ~ "No",
+      amr_ncc == "Established" ~ "Established",
+      amr_ncc == "Establishment in progress" ~ "In Progress",
+      amr_ncc == "Not established" ~ "Not Established",
       amr_ncc == "Not_enrolled" ~ "Not Enrolled",
+      amr_ncc == "Not reported" ~ "Not Reported",
       TRUE ~ NA_character_
     ),
     amr_nrl_metric = case_when(
-      amr_nrl == "Established" ~ "Yes",
-      amr_nrl == "Not established" ~ "No",
+      amr_nrl == "Established" ~ "Established",
+      amr_nrl == "Not established" ~ "Not Established",
       amr_nrl == "Not_enrolled" ~ "Not Enrolled",
+      amr_nrl == "Not reported" ~ "Not Reported",
       TRUE ~ NA_character_
     ),
     eqa_to_nrl_metric = case_when(
-      eqa_to_nrl == "Provided" ~ "Yes",
-      eqa_to_nrl == "Not provided" ~ "No",
+      eqa_to_nrl == "Provided" ~ "Provided",
+      eqa_to_nrl == "Not provided" ~ "Not Provided",
       eqa_to_nrl == "Not_enrolled" ~ "Not Enrolled",
+      eqa_to_nrl == "Not reported" ~ "Not Reported",
       TRUE ~ NA_character_
     ),
     amr_ast_standards_metric = case_when(
-      amr_ast_standards %in% c("CLSI", "EUCAST", "EUCAST|CLSI", "O") ~ "Yes",
+      amr_ast_standards == "CLSI" ~ "CLSI",
+      amr_ast_standards == "EUCAST" ~ "EUCAST",
+      amr_ast_standards == "EUCAST|CLSI" ~ "EUCAST and CLSI",
+      amr_ast_standards == "O" ~ "Other Standard",
       amr_ast_standards == "Not_enrolled" ~ "Not Enrolled",
+      amr_ast_standards == "Not reported" ~ "Not Reported",
       TRUE ~ NA_character_
     ),
     amr_eqa_glass_labs_metric = case_when(
-      amr_eqa_glass_labs == "Provided to all laboratories" ~ "Yes",
-      amr_eqa_glass_labs == "Not provided to all laboratories" ~ "Partial",
+      amr_eqa_glass_labs == "Provided to all laboratories" ~ "Provided to All Laboratories",
+      amr_eqa_glass_labs == "Not provided to all laboratories" ~ "Not Provided to All Laboratories",
       amr_eqa_glass_labs == "Not_enrolled" ~ "Not Enrolled",
+      amr_eqa_glass_labs == "Not reported" ~ "Not Reported",
       TRUE ~ NA_character_
     )
   ) %>%
@@ -193,11 +201,39 @@ fleming_bg_colour <- "grey92" #Non flemming countries
 fleming_na_colour <- "grey50"
 
 colours <- list(
-  ncc = c("Yes" = "#1B9E77", "Partial" = "#E6AB02", "No" = "#D95F02", "Not Enrolled" = "#7570B3"),
-  nrl = c("Yes" = "#1B9E77", "No" = "#D95F02", "Not Enrolled" = "#7570B3"),
-  eqa_nrl = c("Yes" = "#1B9E77", "No" = "#D95F02", "Not Enrolled" = "#7570B3"),
-  ast = c("Yes" = "#1B9E77", "No" = "#D95F02", "Not Enrolled" = "#7570B3"),
-  eqa_glass = c("Yes" = "#1B9E77", "Partial" = "#E6AB02", "No" = "#D95F02", "Not Enrolled" = "#7570B3")
+  ncc = c(
+    "Established" = "#1B9E77",
+    "In Progress" = "#E6AB02",
+    "Not Established" = "#D95F02",
+    "Not Enrolled" = "#7570B3",
+    "Not Reported" = "#9E9E9E"
+  ),
+  nrl = c(
+    "Established" = "#1B9E77",
+    "Not Established" = "#D95F02",
+    "Not Enrolled" = "#7570B3",
+    "Not Reported" = "#9E9E9E"
+  ),
+  eqa_nrl = c(
+    "Provided" = "#1B9E77",
+    "Not Provided" = "#D95F02",
+    "Not Enrolled" = "#7570B3",
+    "Not Reported" = "#9E9E9E"
+  ),
+  ast = c(
+    "EUCAST" = "#1B9E77",
+    "CLSI" = "#2C7FB8",
+    "EUCAST and CLSI" = "#66A61E",
+    "Other Standard" = "#E6AB02",
+    "Not Enrolled" = "#7570B3",
+    "Not Reported" = "#9E9E9E"
+  ),
+  eqa_glass = c(
+    "Provided to All Laboratories" = "#1B9E77",
+    "Not Provided to All Laboratories" = "#E6AB02",
+    "Not Enrolled" = "#7570B3",
+    "Not Reported" = "#9E9E9E"
+  )
 )
 
 # 5. Mapping Theme
@@ -211,20 +247,8 @@ theme_map <- function() {
     )
 }
 
-#### Match column to palette function definition ####
-match_pal <- function(col) {
-  case_when(
-    str_detect(col, "amr_ncc") ~ "ncc",
-    str_detect(col, "amr_nrl") ~ "nrl",
-    str_detect(col, "eqa_to_nrl") ~ "eqa_nrl",
-    str_detect(col, "amr_ast_standards") ~ "ast",
-    str_detect(col, "amr_eqa_glass_labs") ~ "eqa_glass",
-    TRUE ~ "ncc"
-  )
-}
-
 #### Create Make Map Function ####
-make_map <- function(data, fill_col, title, palette, is_fleming = FALSE) {
+make_map <- function(data, fill_col, title, palette, levels_vec, label_map = NULL, is_fleming = FALSE) {
   df <- data %>% mutate(.temp_fill = as.character(.data[[fill_col]]))
   
   if (is_fleming) {
@@ -235,14 +259,14 @@ make_map <- function(data, fill_col, title, palette, is_fleming = FALSE) {
         is.na(.temp_fill) | .temp_fill == "NA" ~ "NA",
         TRUE ~ .temp_fill
       ))
-    levels_vec <- c("Yes", "Partial", "No", "Not Enrolled", "CONTEXT", "NA_FLEMING", "NA")
+    levels_vec <- c(levels_vec, "CONTEXT", "NA_FLEMING", "NA")
   } else {
     df <- df %>%
       mutate(.temp_fill = case_when(
         is.na(.temp_fill) | .temp_fill == "NA" ~ "NA",
         TRUE ~ .temp_fill
       ))
-    levels_vec <- c("Yes", "Partial", "No", "Not Enrolled", "NA")
+    levels_vec <- c(levels_vec, "NA")
   }
   
   df$.temp_fill <- factor(df$.temp_fill, levels = levels_vec)
@@ -265,6 +289,10 @@ make_map <- function(data, fill_col, title, palette, is_fleming = FALSE) {
   
   # 5. Legend Display Logic
   label_vec <- setNames(levels_vec, levels_vec)
+  if (!is.null(label_map)) {
+    common_labs <- intersect(names(label_map), names(label_vec))
+    label_vec[common_labs] <- label_map[common_labs]
+  }
   if (is_fleming) {
     label_vec["CONTEXT"] <- "Non-Fleming"
     label_vec["NA_FLEMING"] <- "No Data"
@@ -293,14 +321,17 @@ make_map <- function(data, fill_col, title, palette, is_fleming = FALSE) {
 
 
 #### Create Panel Functions ####
-make_panel <- function(data, region_name, palettes, is_fleming = FALSE) {
-  plots <- list(
-    make_map(data, "amr_ncc_metric", "AMR NCC", palettes$ncc, is_fleming),
-    make_map(data, "amr_nrl_metric", "AMR NRL", palettes$nrl, is_fleming),
-    make_map(data, "eqa_to_nrl_metric", "EQA To NRL", palettes$eqa_nrl, is_fleming),
-    make_map(data, "amr_ast_standards_metric", "AMR AST Standards", palettes$ast, is_fleming),
-    make_map(data, "amr_eqa_glass_labs_metric", "AMR EQA (GLASS Labs)", palettes$eqa_glass, is_fleming)
-  )
+make_panel <- function(data, region_name, palettes, metric_definitions, is_fleming = FALSE) {
+  plots <- lapply(metric_definitions, function(m) {
+    make_map(
+      data = data,
+      fill_col = m$col,
+      title = m$title,
+      palette = palettes[[m$palette]],
+      levels_vec = m$levels,
+      is_fleming = is_fleming
+    )
+  })
   plot_grid(
     ggdraw() + draw_label(region_name, fontface = "bold", size = 18), 
     plot_grid(plotlist = plots, ncol = 3), 
@@ -318,11 +349,36 @@ regions <- list(
 all_regions <- c("Worldwide", names(regions))
 
 metrics_capacity <- list(
-  list(col = "amr_ncc_metric", title = "AMR_NCC"), 
-  list(col = "amr_nrl_metric", title = "AMR_NRL"), 
-  list(col = "eqa_to_nrl_metric", title = "EQA_to_NRL"), 
-  list(col = "amr_ast_standards_metric", title = "AMR_AST_standards"),
-  list(col = "amr_eqa_glass_labs_metric", title = "AMR_EQA_GLASS_labs")
+  list(
+    col = "amr_ncc_metric",
+    title = "AMR National Coordinating Centre (NCC)",
+    palette = "ncc",
+    levels = c("Established", "In Progress", "Not Established", "Not Enrolled", "Not Reported")
+  ),
+  list(
+    col = "amr_nrl_metric",
+    title = "AMR National Reference Laboratory (NRL)",
+    palette = "nrl",
+    levels = c("Established", "Not Established", "Not Enrolled", "Not Reported")
+  ),
+  list(
+    col = "eqa_to_nrl_metric",
+    title = "External Quality Assessment Provided to NRL",
+    palette = "eqa_nrl",
+    levels = c("Provided", "Not Provided", "Not Enrolled", "Not Reported")
+  ),
+  list(
+    col = "amr_ast_standards_metric",
+    title = "AST Standards Used for AMR Testing",
+    palette = "ast",
+    levels = c("EUCAST", "CLSI", "EUCAST and CLSI", "Other Standard", "Not Enrolled", "Not Reported")
+  ),
+  list(
+    col = "amr_eqa_glass_labs_metric",
+    title = "EQA Coverage Across GLASS Laboratories",
+    palette = "eqa_glass",
+    levels = c("Provided to All Laboratories", "Not Provided to All Laboratories", "Not Enrolled", "Not Reported")
+  )
 )
 
 #### Run execution loop ####
@@ -356,13 +412,19 @@ for (r in all_regions) {
   
   # Save Individual Capacity Maps
   for (m in metrics_capacity) {
-    p <- make_map(plot_data, m$col, paste(r, "–", m$title), colours[[match_pal(m$col)]], 
-                  is_fleming = current_is_fleming)
+    p <- make_map(
+      data = plot_data,
+      fill_col = m$col,
+      title = paste(r, "–", m$title),
+      palette = colours[[m$palette]],
+      levels_vec = m$levels,
+      is_fleming = current_is_fleming
+    )
     ggsave(file.path(individual_dir, paste0(r, "_", m$col, ".png")), p, width = 8, height = 5)
   }
   
   # Save Regional Panels
   ggsave(file.path(panel_dir, paste0(r, "_capacity_panel.png")), 
-         make_panel(plot_data, r, colours, is_fleming = current_is_fleming),
+         make_panel(plot_data, r, colours, metrics_capacity, is_fleming = current_is_fleming),
          width = 14, height = 10, bg = "white")
 }
