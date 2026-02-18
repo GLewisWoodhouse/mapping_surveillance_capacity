@@ -13,13 +13,7 @@ library(cowplot)
 library(forcats)
 
 ####Set up working environment ####
-setwd('/Users/Guest_Aanensen/Documents/prototype_maps_30by30/')
-glass_data <- read_excel('NAP_Glass_data.xlsx')
-NAP_data <- read_excel('National Genomic Landscape.xlsx')
-all_genomic_data <- read.csv('all_priority_genomes.csv')
-critical_genomic_data <- read.csv('critical_priority_genomes.csv')
-klebsiella_genomic_data <- read.csv('klebsiella_genomes.csv')
-tracss_data <- read.csv('TrACSS-2025-Data-export-01102025.csv')
+glass_data <- read.csv('/Users/Guest_Aanensen/Downloads/GLASS data 2023.csv', check.names = FALSE)
 
 ####Pull shapefiles from natural earth ####
 world_sf <- rnaturalearth::ne_countries(scale = 'medium', returnclass = 'sf')
@@ -50,12 +44,18 @@ get_iso3_from_df <- function(df) {
 }
 
 # Add iso3 columns if missing
-glass_data <- glass_data %>% mutate(iso3 = get_iso3_from_df(.))
-NAP_data   <- NAP_data   %>% mutate(iso3 = get_iso3_from_df(.))
-all_genomic_data <- all_genomic_data %>% mutate(iso3 = get_iso3_from_df(.))
-critical_genomic_data <- critical_genomic_data %>% mutate(iso3 = get_iso3_from_df(.))
-klebsiella_genomic_data <- klebsiella_genomic_data %>% mutate(iso3 = get_iso3_from_df(.))
-tracss_data <- tracss_data %>% mutate(iso3 = get_iso3_from_df(.))
+if ("Iso3" %in% names(glass_data)) {
+  names(glass_data)[names(glass_data) == "Iso3"] <- "iso3"
+}
+if ("ISO3" %in% names(glass_data)) {
+  names(glass_data)[names(glass_data) == "ISO3"] <- "iso3"
+}
+
+if ("iso3" %in% names(glass_data)) {
+  glass_data <- glass_data %>% mutate(iso3 = toupper(as.character(iso3)))
+} else {
+  glass_data <- glass_data %>% mutate(iso3 = get_iso3_from_df(.))
+}
 
 
 #check for missing ISO values
@@ -86,135 +86,56 @@ add_kosovo_iso3 <- function(df) {
 }
 
 glass_data   <- add_kosovo_iso3(glass_data)
-NAP_data     <- add_kosovo_iso3(NAP_data)
-all_genomic_data <- add_kosovo_iso3(all_genomic_data)
-critical_genomic_data <- add_kosovo_iso3(critical_genomic_data)
-klebsiella_genomic_data <- add_kosovo_iso3(klebsiella_genomic_data)
-tracss_data <- add_kosovo_iso3(tracss_data)
 
 #Check whether the filter has worked
 glass_data %>% filter(iso3 == "KOS") %>% select(matches("country"), iso3) %>% head()
-NAP_data   %>% filter(iso3 == "KOS") %>% select(matches("country"), iso3) %>% head()
-all_genomic_data %>% filter(iso3 == "KOS") %>% select(matches("country_name"), iso3) %>% head()
-tracss_data %>% filter(iso3 == "KOS") %>% select(matches("Country"), iso3) %>% head()
 
-##### Bring input datasets into one - using the NAP_data to join - I only want country information included if they are in the NAP_data ####
-# Change column names to lower case for harmonisation
+#### Clean data and generate 2023 capacity metrics ####
 names(glass_data) <- tolower(names(glass_data))
-names(NAP_data)   <- tolower(names(NAP_data))
-names(all_genomic_data) <- tolower(names(all_genomic_data))
-names(tracss_data) <- tolower(names(tracss_data))
-names(critical_genomic_data) <- tolower(names(critical_genomic_data))
-names(klebsiella_genomic_data) <- tolower(names(klebsiella_genomic_data))
+glass_data_2023 <- glass_data %>%
+  filter(year == 2023)
 
-#Combine and rename genomic data 
-
-all_genomic_data <- all_genomic_data %>% 
-  left_join(critical_genomic_data, by = 'iso3') %>% 
-  left_join(klebsiella_genomic_data, by = 'iso3') %>% 
-  select(-c('country_name.y','country_name')) %>% 
-  rename_with(~c('country','number_of_priority_genomes','iso3','number_of_critical_genomes','number_of_klebsiella_genomes'))
-
-#Join data together using the ISO code matching - join data onto the nap_data - remove duplica
-#Select columns needed from each dataframe before joining 
-
-NAP_data <- NAP_data %>% 
-  select(c('row id', 'country', 'iso3','who region','latitude', 'longitude', 'glass_amr_enrolled', 'amr action plan'))
-
-glass_data <- glass_data %>% 
-  select(c('country','iso3','who_region', 'amr_enrolled', 'glass_status', 'nap_status'))
-
-#genomic data doesn't need specific columns selected
-
-tracss_data <- tracss_data %>% 
-  select(c(1:3,21,22,124,130)) %>% 
-  rename_with(~c('nap_status','nap_type','surveillance_network','national_reference_lab'), .cols = c(4,5,6,7))
-
-
-combined_data <- NAP_data %>% 
-  left_join(glass_data, by = 'iso3') %>% 
-  select(-country.y) %>% 
-  rename(country = country.x) %>% 
-  left_join(all_genomic_data, by = 'iso3') %>% 
-  select(-country.y) %>% 
-  left_join(tracss_data, by = 'iso3') %>% 
-  select(-c('country','who_region.y','who region')) %>% 
-  rename_with(~c('country','who_region','nap_status_glass','nap_status_tracss'),.cols = c(2,8,11,15)) %>% 
-  select(-c('amr_enrolled')) #Added after checking concordance and validity of the two AMR_enrolled columns
-
-#### Clean combined data and generate metrics ####
-
-#Create a metric column for each map 
-combined_data <- combined_data %>% 
+combined_data <- glass_data_2023 %>%
   mutate(
-    glass_status_metric = case_when(
-      str_detect(glass_status, "Not Enrolled") ~ "No",
-      str_detect(glass_status, "Enrolled") ~ "Yes",
+    iso3 = toupper(trimws(as.character(iso3))),
+    amr_ncc_metric = case_when(
+      amr_ncc == "Established" ~ "Yes",
+      amr_ncc == "Establishment in progress" ~ "Partial",
+      amr_ncc == "Not established" ~ "No",
+      amr_ncc == "Not_enrolled" ~ "Not Enrolled",
+      TRUE ~ NA_character_
+    ),
+    amr_nrl_metric = case_when(
+      amr_nrl == "Established" ~ "Yes",
+      amr_nrl == "Not established" ~ "No",
+      amr_nrl == "Not_enrolled" ~ "Not Enrolled",
+      TRUE ~ NA_character_
+    ),
+    eqa_to_nrl_metric = case_when(
+      eqa_to_nrl == "Provided" ~ "Yes",
+      eqa_to_nrl == "Not provided" ~ "No",
+      eqa_to_nrl == "Not_enrolled" ~ "Not Enrolled",
+      TRUE ~ NA_character_
+    ),
+    amr_ast_standards_metric = case_when(
+      amr_ast_standards %in% c("CLSI", "EUCAST", "EUCAST|CLSI", "O") ~ "Yes",
+      amr_ast_standards == "Not_enrolled" ~ "Not Enrolled",
+      TRUE ~ NA_character_
+    ),
+    amr_eqa_glass_labs_metric = case_when(
+      amr_eqa_glass_labs == "Provided to all laboratories" ~ "Yes",
+      amr_eqa_glass_labs == "Not provided to all laboratories" ~ "Partial",
+      amr_eqa_glass_labs == "Not_enrolled" ~ "Not Enrolled",
       TRUE ~ NA_character_
     )
-  ) 
-
-combined_data <- combined_data %>% 
-  mutate(
-    glass_data_metric = case_when(
-      str_detect(glass_status, "Not Enrolled") ~ "Not Enrolled",
-      str_detect(glass_status, "Enrolled") & 
-        str_detect(glass_status, "Data submitted") ~ "Yes",
-      str_detect(glass_status, "Enrolled") & 
-        str_detect(glass_status, "No data submitted") ~ "No",
-      TRUE ~ NA_character_
-    )
-  )
-
-combined_data <- combined_data %>% 
-  mutate(
-    national_reference_lab_metric = case_when(
-      str_detect(national_reference_lab, "^Yes") ~ "Yes",
-      str_detect(national_reference_lab, "^No")  ~ "No",
-      TRUE                                       ~ NA_character_
-    )
-  )
-
-combined_data <- combined_data %>% 
-  mutate(
-    surveillance_network_metric = case_when(
-      str_detect(surveillance_network, "^[AB]") ~ "No",
-      str_detect(surveillance_network, "^C")     ~ "Partial",
-      str_detect(surveillance_network, "^[DE]")  ~ "Yes",
-      TRUE                                       ~ NA_character_
-    )
-  )
-
-make_genome_metric <- function(x) {
-  num <- x %>%
-    str_trim() %>%
-    na_if("") %>%
-    { gsub(",", "", .) } %>%         # remove commas
-    { gsub("[^0-9]", "", .) } %>%    # keep only digits
-    as.numeric()
-  
-  # Create AMR.Watch style bins - have not included single genomes
-  case_when(
-    is.na(num)                         ~ NA_character_,
-    num == 0                           ~ NA_character_,   # preserve your previous behaviour: treat 0 as NA
-    num >= 1     & num <= 50           ~ "1-50",
-    num >= 51    & num <= 100          ~ "50-100",
-    num >= 101   & num <= 500          ~ "100-500",
-    num >= 501   & num <= 1000         ~ "500-1000",
-    num >= 1001  & num <= 5000         ~ "1000-5000",
-    num >= 5001  & num <= 10000        ~ "5000-10000",
-    num >= 10001 & num <= 50000        ~ "10000-50000",
-    num >= 50001                        ~ "50000+",
-    TRUE                                ~ NA_character_
-  )
-}
-
-# Apply to the three genome columns in the combined data
-combined_data <- combined_data %>%
-  mutate(
-    number_of_priority_genomes_metric = make_genome_metric(number_of_priority_genomes),
-    number_of_critical_genomes_metric = make_genome_metric(number_of_critical_genomes),
-    number_of_klebsiella_genomes_metric = make_genome_metric(number_of_klebsiella_genomes)
+  ) %>%
+  select(
+    iso3, year,
+    amr_ncc_metric,
+    amr_nrl_metric,
+    eqa_to_nrl_metric,
+    amr_ast_standards_metric,
+    amr_eqa_glass_labs_metric
   )
 
 #### MAPPING SECTION ####
@@ -272,14 +193,11 @@ fleming_bg_colour <- "grey92" #Non flemming countries
 fleming_na_colour <- "grey50"
 
 colours <- list(
-  glass = c("Yes" = "#1B9E77", "No" = "#D95F02"),
-  glass_sub = c("Yes" = "#1B9E77", "No" = "#FDAE61","Not Enrolled" = "#F8766D"),
-  nrl   = c("Yes" = "#2B8CBE", "No" = "#E41A1C"),
-  net   = c("Yes" = "#4292C6", "Partial" = "#FDAE61", "No" = "#F8766D"),
-  genomes = c(
-    "1-50"="#F7FBFF", "50-100"="#DEEBF7", "100-500"="#C6DBEF", "500-1000"="#9ECAE1", 
-    "1000-5000"="#6BAED6", "5000-10000"="#3182BD", "10000-50000"="#08519C", "50000+"="#08306B"
-  )
+  ncc = c("Yes" = "#1B9E77", "Partial" = "#E6AB02", "No" = "#D95F02", "Not Enrolled" = "#7570B3"),
+  nrl = c("Yes" = "#1B9E77", "No" = "#D95F02", "Not Enrolled" = "#7570B3"),
+  eqa_nrl = c("Yes" = "#1B9E77", "No" = "#D95F02", "Not Enrolled" = "#7570B3"),
+  ast = c("Yes" = "#1B9E77", "No" = "#D95F02", "Not Enrolled" = "#7570B3"),
+  eqa_glass = c("Yes" = "#1B9E77", "Partial" = "#E6AB02", "No" = "#D95F02", "Not Enrolled" = "#7570B3")
 )
 
 # 5. Mapping Theme
@@ -296,11 +214,12 @@ theme_map <- function() {
 #### Match column to palette function definition ####
 match_pal <- function(col) {
   case_when(
-    str_detect(col, "glass_data")   ~ "glass_sub", # Check specific data metric first
-    str_detect(col, "glass_status") ~ "glass",     # Then check general status
-    str_detect(col, "national_ref") ~ "nrl", 
-    str_detect(col, "surveillance") ~ "net", 
-    TRUE ~ "genomes"
+    str_detect(col, "amr_ncc") ~ "ncc",
+    str_detect(col, "amr_nrl") ~ "nrl",
+    str_detect(col, "eqa_to_nrl") ~ "eqa_nrl",
+    str_detect(col, "amr_ast_standards") ~ "ast",
+    str_detect(col, "amr_eqa_glass_labs") ~ "eqa_glass",
+    TRUE ~ "ncc"
   )
 }
 
@@ -308,24 +227,22 @@ match_pal <- function(col) {
 make_map <- function(data, fill_col, title, palette, is_fleming = FALSE) {
   df <- data %>% mutate(.temp_fill = as.character(.data[[fill_col]]))
   
-  # 1. NEW LOGIC: Distinguish between Global NA and Fleming NA
-  df <- df %>%
-    mutate(.temp_fill = case_when(
-      .temp_fill == "CONTEXT" ~ "CONTEXT",
-      # If data is missing AND it's a Fleming Fund country, use a dark NA label
-      (is.na(.temp_fill) | .temp_fill == "NA") & (iso3 %in% fleming_iso3_list) ~ "NA_FLEMING",
-      # Standard Global NA
-      is.na(.temp_fill) | .temp_fill == "NA" ~ "NA",
-      TRUE ~ .temp_fill
-    ))
-  
-  # 2. Define Levels (Include the new NA_FLEMING level)
-  if (str_detect(fill_col, "genomes")) {
-    levels_vec <- c("1-50", "50-100", "100-500", "500-1000", "1000-5000", 
-                    "5000-10000", "10000-50000", "50000+", "CONTEXT", "NA_FLEMING", "NA")
-  } else {
-    # Handles capacity metrics
+  if (is_fleming) {
+    df <- df %>%
+      mutate(.temp_fill = case_when(
+        .temp_fill == "CONTEXT" ~ "CONTEXT",
+        (is.na(.temp_fill) | .temp_fill == "NA") & (iso3 %in% fleming_iso3_list) ~ "NA_FLEMING",
+        is.na(.temp_fill) | .temp_fill == "NA" ~ "NA",
+        TRUE ~ .temp_fill
+      ))
     levels_vec <- c("Yes", "Partial", "No", "Not Enrolled", "CONTEXT", "NA_FLEMING", "NA")
+  } else {
+    df <- df %>%
+      mutate(.temp_fill = case_when(
+        is.na(.temp_fill) | .temp_fill == "NA" ~ "NA",
+        TRUE ~ .temp_fill
+      ))
+    levels_vec <- c("Yes", "Partial", "No", "Not Enrolled", "NA")
   }
   
   df$.temp_fill <- factor(df$.temp_fill, levels = levels_vec)
@@ -338,24 +255,25 @@ make_map <- function(data, fill_col, title, palette, is_fleming = FALSE) {
     df <- bind_rows(df, phantom_sf)
   }
   
-  # 4. Color Assignment (Updated for contrast)
+  # 4. Color Assignment
   final_pal <- palette
-  final_pal["CONTEXT"]    <- "#F5F5F5" # Very pale grey (Non-Fleming)
-  final_pal["NA_FLEMING"] <- "#707070" # Dark grey (Fleming country, no data)
-  final_pal["NA"]         <- "#E0E0E0" # Medium light grey (Global NA)
+  if (is_fleming) {
+    final_pal["CONTEXT"] <- "#F5F5F5"
+    final_pal["NA_FLEMING"] <- "#707070"
+  }
+  final_pal["NA"] <- "#E0E0E0"
   
   # 5. Legend Display Logic
   label_vec <- setNames(levels_vec, levels_vec)
-  label_vec["CONTEXT"]    <- "Non-Fleming"
-  label_vec["NA_FLEMING"] <- "No Data" # Label for dark grey box
-  
-  # Define what breaks to show in the legend
   if (is_fleming) {
-    # Show "Non-Fleming" and "No Data" (the darker Fleming NA)
+    label_vec["CONTEXT"] <- "Non-Fleming"
+    label_vec["NA_FLEMING"] <- "No Data"
+  }
+  
+  if (is_fleming) {
     plot_breaks <- setdiff(levels_vec, "NA") 
   } else {
-    # Hide Fleming-specific labels for non-Fleming maps
-    plot_breaks <- setdiff(levels_vec, c("CONTEXT", "NA_FLEMING"))
+    plot_breaks <- levels_vec
   }
   plot_labels <- label_vec[plot_breaks]
   
@@ -377,27 +295,16 @@ make_map <- function(data, fill_col, title, palette, is_fleming = FALSE) {
 #### Create Panel Functions ####
 make_panel <- function(data, region_name, palettes, is_fleming = FALSE) {
   plots <- list(
-    make_map(data, "glass_status_metric", "Enrolled in GLASS", palettes$glass, is_fleming),
-    make_map(data, "glass_data_metric", "GLASS Data Submitted", palettes$glass_sub, is_fleming),
-    make_map(data, "national_reference_lab_metric", "National Ref Lab", palettes$nrl, is_fleming),
-    make_map(data, "surveillance_network_metric", "Sentinel Network", palettes$net, is_fleming)
+    make_map(data, "amr_ncc_metric", "AMR NCC", palettes$ncc, is_fleming),
+    make_map(data, "amr_nrl_metric", "AMR NRL", palettes$nrl, is_fleming),
+    make_map(data, "eqa_to_nrl_metric", "EQA To NRL", palettes$eqa_nrl, is_fleming),
+    make_map(data, "amr_ast_standards_metric", "AMR AST Standards", palettes$ast, is_fleming),
+    make_map(data, "amr_eqa_glass_labs_metric", "AMR EQA (GLASS Labs)", palettes$eqa_glass, is_fleming)
   )
   plot_grid(
     ggdraw() + draw_label(region_name, fontface = "bold", size = 18), 
-    plot_grid(plotlist = plots, ncol = 2), 
+    plot_grid(plotlist = plots, ncol = 3), 
     ncol = 1, rel_heights = c(0.08, 1)
-  )
-}
-
-make_genomics_panel <- function(data, region_name, palettes, is_fleming = FALSE) {
-  plots <- list(
-    make_map(data, "number_of_priority_genomes_metric", "Priority Pathogen Genomes", palettes$genomes, is_fleming),
-    make_map(data, "number_of_critical_genomes_metric", "Critical Pathogen Genomes", palettes$genomes, is_fleming)
-  )
-  plot_grid(
-    ggdraw() + draw_label(paste(region_name, "Genomics"), fontface = "bold", size = 18), 
-    plot_grid(plotlist = plots, ncol = 2), 
-    ncol = 1, rel_heights = c(0.12, 1)
   )
 }
 #### Set up the Execution loop ####
@@ -411,18 +318,20 @@ regions <- list(
 all_regions <- c("Worldwide", names(regions))
 
 metrics_capacity <- list(
-  list(col="glass_status_metric", title="Enrolled"), 
-  list(col="glass_data_metric", title="Data"), 
-  list(col="national_reference_lab_metric", title="Ref Lab"), 
-  list(col="surveillance_network_metric", title="Network")
-)
-
-metrics_genomics <- list(
-  list(col = "number_of_priority_genomes_metric", title = "Priority Pathogen Genomes"),
-  list(col = "number_of_critical_genomes_metric", title = "Critical Priority Pathogen Genomes")
+  list(col = "amr_ncc_metric", title = "AMR_NCC"), 
+  list(col = "amr_nrl_metric", title = "AMR_NRL"), 
+  list(col = "eqa_to_nrl_metric", title = "EQA_to_NRL"), 
+  list(col = "amr_ast_standards_metric", title = "AMR_AST_standards"),
+  list(col = "amr_eqa_glass_labs_metric", title = "AMR_EQA_GLASS_labs")
 )
 
 #### Run execution loop ####
+output_root <- "GLASS_2023_capacity_maps"
+individual_dir <- file.path(output_root, "individual_maps")
+panel_dir <- file.path(output_root, "capacity_panels")
+dir.create(individual_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(panel_dir, recursive = TRUE, showWarnings = FALSE)
+
 for (r in all_regions) {
   
   # 1. First, subset the data as you currently do
@@ -449,18 +358,11 @@ for (r in all_regions) {
   for (m in metrics_capacity) {
     p <- make_map(plot_data, m$col, paste(r, "–", m$title), colours[[match_pal(m$col)]], 
                   is_fleming = current_is_fleming)
-    ggsave(paste0("individual maps/", r, "_", m$col, ".png"), p, width = 8, height = 5)
+    ggsave(file.path(individual_dir, paste0(r, "_", m$col, ".png")), p, width = 8, height = 5)
   }
   
   # Save Regional Panels
-  ggsave(paste0("regional panels/", r, "_panel.png"), 
+  ggsave(file.path(panel_dir, paste0(r, "_capacity_panel.png")), 
          make_panel(plot_data, r, colours, is_fleming = current_is_fleming),
          width = 14, height = 10, bg = "white")
-  
-  # Save Genomics Panels
-  ggsave(paste0("regional panels/", r, "_genomics.png"), 
-         make_genomics_panel(plot_data, r, colours, is_fleming = current_is_fleming),
-         width = 14, height = 6, bg = "white")
 }
-
-
