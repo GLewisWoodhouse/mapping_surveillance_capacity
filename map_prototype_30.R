@@ -15,6 +15,8 @@ library(forcats)
 ####Set up working environment ####
 glass_data <- read_excel('NAP_Glass_data.xlsx')
 tracss_data <- read.csv('TrACSS-2025-Data-export-01102025.csv', stringsAsFactors = FALSE)
+all_genomic_data <- read.csv('all_priority_genomes.csv', stringsAsFactors = FALSE)
+critical_genomic_data <- read.csv('critical_priority_genomes.csv', stringsAsFactors = FALSE)
 
 glass_2023_path <- '/Users/Guest_Aanensen/Downloads/GLASS data 2023.csv'
 if (file.exists(glass_2023_path)) {
@@ -55,6 +57,8 @@ get_iso3_from_df <- function(df) {
 # Add iso3 columns if missing
 glass_data <- glass_data %>% mutate(iso3 = get_iso3_from_df(.))
 tracss_data <- tracss_data %>% mutate(iso3 = get_iso3_from_df(.))
+all_genomic_data <- all_genomic_data %>% mutate(iso3 = get_iso3_from_df(.))
+critical_genomic_data <- critical_genomic_data %>% mutate(iso3 = get_iso3_from_df(.))
 
 if (nrow(glass_data_2023) > 0) {
   if ("Iso3" %in% names(glass_data_2023)) {
@@ -100,6 +104,8 @@ add_kosovo_iso3 <- function(df) {
 
 glass_data <- add_kosovo_iso3(glass_data)
 tracss_data <- add_kosovo_iso3(tracss_data)
+all_genomic_data <- add_kosovo_iso3(all_genomic_data)
+critical_genomic_data <- add_kosovo_iso3(critical_genomic_data)
 if (nrow(glass_data_2023) > 0) {
   glass_data_2023 <- add_kosovo_iso3(glass_data_2023)
 }
@@ -126,10 +132,15 @@ tracss_core <- tracss_data %>%
 if (nrow(glass_data_2023) > 0) {
   glass_2023_core <- glass_data_2023 %>%
     filter(year == 2023) %>%
-    select(any_of(c("iso3", "amr_ncc", "amr_nrl"))) %>%
+    select(any_of(c("iso3", "amr_ncc", "amr_nrl", "amr_eqa_glass_labs"))) %>%
     mutate(iso3 = toupper(trimws(as.character(iso3))))
 } else {
-  glass_2023_core <- data.frame(iso3 = character(), amr_ncc = character(), amr_nrl = character())
+  glass_2023_core <- data.frame(
+    iso3 = character(),
+    amr_ncc = character(),
+    amr_nrl = character(),
+    amr_eqa_glass_labs = character()
+  )
 }
 
 combined_data <- glass_core %>%
@@ -176,6 +187,12 @@ combined_data <- glass_core %>%
       TRUE ~ NA_character_
     ),
     nrl_metric = coalesce(nrl_glass_metric, nrl_tracss_metric),
+    eqa_glass_metric = case_when(
+      amr_eqa_glass_labs == "Provided to all laboratories" ~ "Provided to All Laboratories",
+      amr_eqa_glass_labs == "Not provided to all laboratories" ~ "Not Provided to All Laboratories",
+      amr_eqa_glass_labs == "Not_enrolled" ~ "Not Enrolled",
+      TRUE ~ NA_character_
+    ),
     surveillance_network_metric = case_when(
       str_detect(surveillance_network, "^[AB]") ~ "No",
       str_detect(surveillance_network, "^C") ~ "Partial",
@@ -190,8 +207,43 @@ combined_data <- glass_core %>%
     glass_data_submission_metric,
     ncc_metric,
     nrl_metric,
+    eqa_glass_metric,
     surveillance_network_metric
   )
+
+make_genome_metric <- function(x) {
+  num <- x %>%
+    as.character() %>%
+    str_trim() %>%
+    na_if("") %>%
+    { gsub(",", "", .) } %>%
+    { gsub("[^0-9]", "", .) } %>%
+    as.numeric()
+  
+  case_when(
+    is.na(num) ~ NA_character_,
+    num == 0 ~ NA_character_,
+    num >= 1 & num <= 50 ~ "1-50",
+    num >= 51 & num <= 200 ~ "51-200",
+    num >= 201 & num <= 1000 ~ "201-1000",
+    num >= 1001 & num <= 5000 ~ "1001-5000",
+    num >= 5001 ~ "5001+",
+    TRUE ~ NA_character_
+  )
+}
+
+genomics_data <- all_genomic_data %>%
+  rename(number_of_priority_genomes = number_of_genomes) %>%
+  left_join(
+    critical_genomic_data %>% rename(number_of_critical_genomes = number_of_genomes) %>% select(iso3, number_of_critical_genomes),
+    by = "iso3"
+  ) %>%
+  mutate(
+    iso3 = toupper(trimws(as.character(iso3))),
+    number_of_priority_genomes_metric = make_genome_metric(number_of_priority_genomes),
+    number_of_critical_genomes_metric = make_genome_metric(number_of_critical_genomes)
+  ) %>%
+  select(iso3, number_of_priority_genomes_metric, number_of_critical_genomes_metric)
 
 #### MAPPING SECTION ####
 ##### Join the shapefile and combined data and ensure correct mapping of country codes ####
@@ -234,9 +286,22 @@ world_data <- world_sf %>%
   )) %>%
   left_join(combined_data %>% mutate(iso3 = toupper(trimws(iso3))), by = "iso3")
 
+world_data_genomics <- world_sf %>% 
+  mutate(iso3 = case_when(
+    adm0_a3 == "SDS" ~ "SSD",
+    adm0_a3 == "PSX" ~ "PSE",
+    TRUE ~ adm0_a3
+  )) %>%
+  left_join(genomics_data %>% mutate(iso3 = toupper(trimws(iso3))), by = "iso3")
+
 # 3. Define Cropped Europe
 europe_bbox <- st_bbox(c(xmin = -40, ymin = 20, xmax = 60, ymax = 85), crs = st_crs(world_data))
 world_data_europe <- world_data %>% 
+  filter(continent == "Europe") %>% 
+  st_make_valid() %>%
+  st_crop(europe_bbox)
+
+world_data_genomics_europe <- world_data_genomics %>% 
   filter(continent == "Europe") %>% 
   st_make_valid() %>%
   st_crop(europe_bbox)
@@ -268,10 +333,22 @@ colours <- list(
     "Not Established" = "#D95F02",
     "Not Enrolled" = "#7570B3"
   ),
+  eqa_glass = c(
+    "Provided to All Laboratories" = "#1B9E77",
+    "Not Provided to All Laboratories" = "#E6AB02",
+    "Not Enrolled" = "#7570B3"
+  ),
   network = c(
     "Yes" = "#1B9E77",
     "Partial" = "#E6AB02",
     "No" = "#D95F02"
+  ),
+  genomics = c(
+    "1-50" = "#F7FCFD",
+    "51-200" = "#CFECE6",
+    "201-1000" = "#84D2C5",
+    "1001-5000" = "#2CA7A0",
+    "5001+" = "#0B525B"
   )
 )
 
@@ -365,7 +442,7 @@ make_map <- function(data, fill_col, title, palette, levels_vec, label_map = NUL
 
 
 #### Create Panel Functions ####
-make_panel <- function(data, region_name, palettes, metric_definitions, is_fleming = FALSE) {
+make_panel <- function(data, region_name, palettes, metric_definitions, ncol = 3, is_fleming = FALSE) {
   plots <- lapply(metric_definitions, function(m) {
     make_map(
       data = data,
@@ -378,7 +455,7 @@ make_panel <- function(data, region_name, palettes, metric_definitions, is_flemi
   })
   plot_grid(
     ggdraw() + draw_label(region_name, fontface = "bold", size = 18), 
-    plot_grid(plotlist = plots, ncol = 3), 
+    plot_grid(plotlist = plots, ncol = ncol), 
     ncol = 1, rel_heights = c(0.08, 1)
   )
 }
@@ -394,28 +471,22 @@ all_regions <- c("Worldwide", names(regions))
 
 metrics_capacity <- list(
   list(
-    col = "glass_enrollment_metric",
-    title = "Enrollment in GLASS",
-    palette = "enrollment",
-    levels = c("Enrolled", "Not Enrolled")
-  ),
-  list(
     col = "glass_data_submission_metric",
     title = "Data Submission to GLASS",
     palette = "submission",
     levels = c("Submitted", "No Submission", "Not Enrolled")
   ),
   list(
-    col = "ncc_metric",
-    title = "National Coordinating Centre",
-    palette = "ncc",
-    levels = c("Established", "In Progress", "Not Established", "Not Enrolled")
-  ),
-  list(
     col = "nrl_metric",
-    title = "National Reference Laboratory",
+    title = "AMR National Reference Lab",
     palette = "nrl",
     levels = c("Established", "Not Established", "Not Enrolled")
+  ),
+  list(
+    col = "eqa_glass_metric",
+    title = "EQA at GLASS Labs",
+    palette = "eqa_glass",
+    levels = c("Provided to All Laboratories", "Not Provided to All Laboratories", "Not Enrolled")
   ),
   list(
     col = "surveillance_network_metric",
@@ -425,29 +496,53 @@ metrics_capacity <- list(
   )
 )
 
-#### Run execution loop ####
-output_root <- "combined_capacity_maps"
+metrics_genomics <- list(
+  list(
+    col = "number_of_priority_genomes_metric",
+    title = "Priority Pathogen Genomes",
+    palette = "genomics",
+    levels = c("1-50", "51-200", "201-1000", "1001-5000", "5001+")
+  ),
+  list(
+    col = "number_of_critical_genomes_metric",
+    title = "Critical Priority Pathogen Genomes",
+    palette = "genomics",
+    levels = c("1-50", "51-200", "201-1000", "1001-5000", "5001+")
+  )
+)
+
+#### Run execution loops ####
+output_root <- "reworked capacity metrics"
 individual_dir <- file.path(output_root, "individual_maps")
 panel_dir <- file.path(output_root, "capacity_panels")
 individual_svg_dir <- file.path(output_root, "individual_maps_svg")
 panel_svg_dir <- file.path(output_root, "capacity_panels_svg")
+genomics_panel_dir <- file.path(output_root, "genomics_panels")
+genomics_panel_svg_dir <- file.path(output_root, "genomics_panels_svg")
 dir.create(individual_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(panel_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(individual_svg_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(panel_svg_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(genomics_panel_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(genomics_panel_svg_dir, recursive = TRUE, showWarnings = FALSE)
 
 for (r in all_regions) {
   
   # 1. First, subset the data as you currently do
   if (r == "Worldwide") {
     plot_data <- world_data
+    plot_data_genomics <- world_data_genomics
   } else if (r == "Europe") {
     plot_data <- world_data_europe
+    plot_data_genomics <- world_data_genomics_europe
   } else if (r == "Central & South America") {
     plot_data <- world_data %>% 
       filter(continent == "South America" | subregion == "Central America" | subregion == "Caribbean")
+    plot_data_genomics <- world_data_genomics %>% 
+      filter(continent == "South America" | subregion == "Central America" | subregion == "Caribbean")
   } else {
     plot_data <- world_data %>% filter(continent %in% regions[[r]])
+    plot_data_genomics <- world_data_genomics %>% filter(continent %in% regions[[r]])
   }
   
   current_is_fleming <- (r == "Fleming")
@@ -455,6 +550,8 @@ for (r in all_regions) {
   if (current_is_fleming) {
     # This turns all non-Fleming countries in Africa/Asia to "CONTEXT"
     plot_data <- plot_data %>% 
+      mutate(across(ends_with("_metric"), ~if_else(iso3 %in% fleming_iso3_list, as.character(.x), "CONTEXT")))
+    plot_data_genomics <- plot_data_genomics %>% 
       mutate(across(ends_with("_metric"), ~if_else(iso3 %in% fleming_iso3_list, as.character(.x), "CONTEXT")))
   }
   
@@ -479,13 +576,31 @@ for (r in all_regions) {
   }
   
   # Save Regional Panels
-  panel_plot <- make_panel(plot_data, r, colours, metrics_capacity, is_fleming = current_is_fleming)
+  panel_plot <- make_panel(plot_data, r, colours, metrics_capacity, ncol = 2, is_fleming = current_is_fleming)
   ggsave(file.path(panel_dir, paste0(r, "_capacity_panel.png")), panel_plot, width = 14, height = 10, bg = "white")
   ggsave(
     file.path(panel_svg_dir, paste0(r, "_capacity_panel.svg")),
     panel_plot,
     width = 14,
     height = 10,
+    bg = "white",
+    device = svglite::svglite
+  )
+  
+  genomics_plot <- make_panel(
+    plot_data_genomics,
+    paste(r, "Genomics"),
+    colours,
+    metrics_genomics,
+    ncol = 2,
+    is_fleming = current_is_fleming
+  )
+  ggsave(file.path(genomics_panel_dir, paste0(r, "_genomics_panel.png")), genomics_plot, width = 14, height = 7, bg = "white")
+  ggsave(
+    file.path(genomics_panel_svg_dir, paste0(r, "_genomics_panel.svg")),
+    genomics_plot,
+    width = 14,
+    height = 7,
     bg = "white",
     device = svglite::svglite
   )
