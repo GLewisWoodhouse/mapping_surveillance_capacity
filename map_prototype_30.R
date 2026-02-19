@@ -474,7 +474,7 @@ for (r in all_regions) {
       p,
       width = 8,
       height = 5,
-      device = grDevices::svg
+      device = svglite::svglite
     )
   }
   
@@ -487,6 +487,6 @@ for (r in all_regions) {
     width = 14,
     height = 10,
     bg = "white",
-    device = grDevices::svg
+    device = svglite::svglite
   )
 }
