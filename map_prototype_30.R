@@ -250,33 +250,28 @@ fleming_na_colour <- "grey50"
 colours <- list(
   enrollment = c(
     "Enrolled" = "#1B9E77",
-    "Not Enrolled" = "#D95F02",
-    "Not Reported" = "#9E9E9E"
+    "Not Enrolled" = "#D95F02"
   ),
   submission = c(
     "Submitted" = "#1B9E77",
     "No Submission" = "#E6AB02",
-    "Not Enrolled" = "#D95F02",
-    "Not Reported" = "#9E9E9E"
+    "Not Enrolled" = "#D95F02"
   ),
   ncc = c(
     "Established" = "#1B9E77",
     "In Progress" = "#E6AB02",
     "Not Established" = "#D95F02",
-    "Not Enrolled" = "#7570B3",
-    "Not Reported" = "#9E9E9E"
+    "Not Enrolled" = "#7570B3"
   ),
   nrl = c(
     "Established" = "#1B9E77",
     "Not Established" = "#D95F02",
-    "Not Enrolled" = "#7570B3",
-    "Not Reported" = "#9E9E9E"
+    "Not Enrolled" = "#7570B3"
   ),
   network = c(
     "Yes" = "#1B9E77",
     "Partial" = "#E6AB02",
-    "No" = "#D95F02",
-    "Not Reported" = "#9E9E9E"
+    "No" = "#D95F02"
   )
 )
 
@@ -294,6 +289,11 @@ theme_map <- function() {
 #### Create Make Map Function ####
 make_map <- function(data, fill_col, title, palette, levels_vec, label_map = NULL, is_fleming = FALSE) {
   df <- data %>% mutate(.temp_fill = as.character(.data[[fill_col]]))
+  df <- df %>%
+    mutate(.temp_fill = case_when(
+      .temp_fill == "Not Reported" ~ "NA",
+      TRUE ~ .temp_fill
+    ))
   
   if (is_fleming) {
     df <- df %>%
@@ -397,31 +397,31 @@ metrics_capacity <- list(
     col = "glass_enrollment_metric",
     title = "Enrollment in GLASS",
     palette = "enrollment",
-    levels = c("Enrolled", "Not Enrolled", "Not Reported")
+    levels = c("Enrolled", "Not Enrolled")
   ),
   list(
     col = "glass_data_submission_metric",
     title = "Data Submission to GLASS",
     palette = "submission",
-    levels = c("Submitted", "No Submission", "Not Enrolled", "Not Reported")
+    levels = c("Submitted", "No Submission", "Not Enrolled")
   ),
   list(
     col = "ncc_metric",
     title = "National Coordinating Centre",
     palette = "ncc",
-    levels = c("Established", "In Progress", "Not Established", "Not Enrolled", "Not Reported")
+    levels = c("Established", "In Progress", "Not Established", "Not Enrolled")
   ),
   list(
     col = "nrl_metric",
     title = "National Reference Laboratory",
     palette = "nrl",
-    levels = c("Established", "Not Established", "Not Enrolled", "Not Reported")
+    levels = c("Established", "Not Established", "Not Enrolled")
   ),
   list(
     col = "surveillance_network_metric",
     title = "Surveillance Network",
     palette = "network",
-    levels = c("Yes", "Partial", "No", "Not Reported")
+    levels = c("Yes", "Partial", "No")
   )
 )
 
@@ -429,8 +429,12 @@ metrics_capacity <- list(
 output_root <- "combined_capacity_maps"
 individual_dir <- file.path(output_root, "individual_maps")
 panel_dir <- file.path(output_root, "capacity_panels")
+individual_svg_dir <- file.path(output_root, "individual_maps_svg")
+panel_svg_dir <- file.path(output_root, "capacity_panels_svg")
 dir.create(individual_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(panel_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(individual_svg_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(panel_svg_dir, recursive = TRUE, showWarnings = FALSE)
 
 for (r in all_regions) {
   
@@ -465,10 +469,11 @@ for (r in all_regions) {
       is_fleming = current_is_fleming
     )
     ggsave(file.path(individual_dir, paste0(r, "_", m$col, ".png")), p, width = 8, height = 5)
+    ggsave(file.path(individual_svg_dir, paste0(r, "_", m$col, ".svg")), p, width = 8, height = 5)
   }
   
   # Save Regional Panels
-  ggsave(file.path(panel_dir, paste0(r, "_capacity_panel.png")), 
-         make_panel(plot_data, r, colours, metrics_capacity, is_fleming = current_is_fleming),
-         width = 14, height = 10, bg = "white")
+  panel_plot <- make_panel(plot_data, r, colours, metrics_capacity, is_fleming = current_is_fleming)
+  ggsave(file.path(panel_dir, paste0(r, "_capacity_panel.png")), panel_plot, width = 14, height = 10, bg = "white")
+  ggsave(file.path(panel_svg_dir, paste0(r, "_capacity_panel.svg")), panel_plot, width = 14, height = 10, bg = "white")
 }
