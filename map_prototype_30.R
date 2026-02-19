@@ -469,11 +469,24 @@ for (r in all_regions) {
       is_fleming = current_is_fleming
     )
     ggsave(file.path(individual_dir, paste0(r, "_", m$col, ".png")), p, width = 8, height = 5)
-    ggsave(file.path(individual_svg_dir, paste0(r, "_", m$col, ".svg")), p, width = 8, height = 5)
+    ggsave(
+      file.path(individual_svg_dir, paste0(r, "_", m$col, ".svg")),
+      p,
+      width = 8,
+      height = 5,
+      device = grDevices::svg
+    )
   }
   
   # Save Regional Panels
   panel_plot <- make_panel(plot_data, r, colours, metrics_capacity, is_fleming = current_is_fleming)
   ggsave(file.path(panel_dir, paste0(r, "_capacity_panel.png")), panel_plot, width = 14, height = 10, bg = "white")
-  ggsave(file.path(panel_svg_dir, paste0(r, "_capacity_panel.svg")), panel_plot, width = 14, height = 10, bg = "white")
+  ggsave(
+    file.path(panel_svg_dir, paste0(r, "_capacity_panel.svg")),
+    panel_plot,
+    width = 14,
+    height = 10,
+    bg = "white",
+    device = grDevices::svg
+  )
 }
