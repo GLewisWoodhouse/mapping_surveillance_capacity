@@ -1,0 +1,65 @@
+---
+title: "Metric Options and Descriptions"
+output:
+  pdf_document:
+    toc: true
+    number_sections: false
+geometry: margin=1in
+---
+
+This booklet lists each available metric, its data source, description, and simplified labels.
+
+## Enrollment in GLASS (GLASS)
+
+**Description:** Country enrollment status in GLASS AMR surveillance.
+
+**Simplified labels:** Enrolled, Not Enrolled
+
+## Data Submission to GLASS (GLASS)
+
+**Description:** Whether enrolled countries have submitted GLASS data.
+
+**Simplified labels:** Submitted, No Submission, Not Enrolled
+
+## National Coordinating Centre (GLASS 2023)
+
+**Description:** Status of AMR national coordinating centre.
+
+**Simplified labels:** Yes, Partial, No, Not Enrolled
+
+## AMR National Reference Lab (GLASS 2023)
+
+**Description:** Status of AMR national reference laboratory.
+
+**Simplified labels:** Yes, No, Not Enrolled
+
+## EQA to NRL (GLASS 2023)
+
+**Description:** External quality assessment provision to the national reference laboratory.
+
+**Simplified labels:** Yes, No, Not Enrolled
+
+## AST Standards in Use (GLASS 2023)
+
+**Description:** Whether AST standards are defined/reported.
+
+**Simplified labels:** Yes, Not Enrolled
+
+## EQA at GLASS Labs (GLASS 2023)
+
+**Description:** Extent of EQA coverage across GLASS laboratories.
+
+**Simplified labels:** Yes, Partial, Not Enrolled
+
+## AMR National Reference Lab (TrACSS)
+
+**Description:** TrACSS-reported NRL AST capacity (all organisms, some organisms, or none).
+
+**Simplified labels:** Yes, Partial, No
+
+## Surveillance Network (TrACSS)
+
+**Description:** Maturity of national AMR surveillance network in TrACSS.
+
+**Simplified labels:** Yes, Partial, No
+
