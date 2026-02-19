@@ -13,7 +13,16 @@ library(cowplot)
 library(forcats)
 
 ####Set up working environment ####
-glass_data <- read.csv('/Users/Guest_Aanensen/Downloads/GLASS data 2023.csv', check.names = FALSE)
+glass_data <- read_excel('NAP_Glass_data.xlsx')
+tracss_data <- read.csv('TrACSS-2025-Data-export-01102025.csv', stringsAsFactors = FALSE)
+
+glass_2023_path <- '/Users/Guest_Aanensen/Downloads/GLASS data 2023.csv'
+if (file.exists(glass_2023_path)) {
+  glass_data_2023 <- read.csv(glass_2023_path, check.names = FALSE, stringsAsFactors = FALSE)
+} else {
+  message("GLASS data 2023.csv not found in Downloads. NCC/GLASS-NRL metrics may be missing.")
+  glass_data_2023 <- data.frame()
+}
 
 ####Pull shapefiles from natural earth ####
 world_sf <- rnaturalearth::ne_countries(scale = 'medium', returnclass = 'sf')
@@ -44,17 +53,21 @@ get_iso3_from_df <- function(df) {
 }
 
 # Add iso3 columns if missing
-if ("Iso3" %in% names(glass_data)) {
-  names(glass_data)[names(glass_data) == "Iso3"] <- "iso3"
-}
-if ("ISO3" %in% names(glass_data)) {
-  names(glass_data)[names(glass_data) == "ISO3"] <- "iso3"
-}
+glass_data <- glass_data %>% mutate(iso3 = get_iso3_from_df(.))
+tracss_data <- tracss_data %>% mutate(iso3 = get_iso3_from_df(.))
 
-if ("iso3" %in% names(glass_data)) {
-  glass_data <- glass_data %>% mutate(iso3 = toupper(as.character(iso3)))
-} else {
-  glass_data <- glass_data %>% mutate(iso3 = get_iso3_from_df(.))
+if (nrow(glass_data_2023) > 0) {
+  if ("Iso3" %in% names(glass_data_2023)) {
+    names(glass_data_2023)[names(glass_data_2023) == "Iso3"] <- "iso3"
+  }
+  if ("ISO3" %in% names(glass_data_2023)) {
+    names(glass_data_2023)[names(glass_data_2023) == "ISO3"] <- "iso3"
+  }
+  if ("iso3" %in% names(glass_data_2023)) {
+    glass_data_2023 <- glass_data_2023 %>% mutate(iso3 = toupper(as.character(iso3)))
+  } else {
+    glass_data_2023 <- glass_data_2023 %>% mutate(iso3 = get_iso3_from_df(.))
+  }
 }
 
 
@@ -85,20 +98,63 @@ add_kosovo_iso3 <- function(df) {
   df
 }
 
-glass_data   <- add_kosovo_iso3(glass_data)
+glass_data <- add_kosovo_iso3(glass_data)
+tracss_data <- add_kosovo_iso3(tracss_data)
+if (nrow(glass_data_2023) > 0) {
+  glass_data_2023 <- add_kosovo_iso3(glass_data_2023)
+}
 
 #Check whether the filter has worked
 glass_data %>% filter(iso3 == "KOS") %>% select(matches("country"), iso3) %>% head()
 
-#### Clean data and generate 2023 capacity metrics ####
+#### Clean data and generate combined capacity metrics ####
 names(glass_data) <- tolower(names(glass_data))
-glass_data_2023 <- glass_data %>%
-  filter(year == 2023)
+if (nrow(glass_data_2023) > 0) {
+  names(glass_data_2023) <- tolower(names(glass_data_2023))
+}
 
-combined_data <- glass_data_2023 %>%
+glass_core <- glass_data %>%
+  select(any_of(c("iso3", "glass_status", "data_sumbitted", "amr_enrolled"))) %>%
+  mutate(iso3 = toupper(trimws(as.character(iso3))))
+
+tracss_core <- tracss_data %>%
+  select(c(1:3, 21, 22, 124, 130), iso3) %>%
+  rename_with(~ c("nap_status", "nap_type", "surveillance_network", "national_reference_lab"), .cols = c(4, 5, 6, 7)) %>%
+  select(iso3, surveillance_network, national_reference_lab) %>%
+  mutate(iso3 = toupper(trimws(as.character(iso3))))
+
+if (nrow(glass_data_2023) > 0) {
+  glass_2023_core <- glass_data_2023 %>%
+    filter(year == 2023) %>%
+    select(any_of(c("iso3", "amr_ncc", "amr_nrl"))) %>%
+    mutate(iso3 = toupper(trimws(as.character(iso3))))
+} else {
+  glass_2023_core <- data.frame(iso3 = character(), amr_ncc = character(), amr_nrl = character())
+}
+
+combined_data <- glass_core %>%
+  full_join(glass_2023_core, by = "iso3") %>%
+  full_join(tracss_core, by = "iso3") %>%
   mutate(
     iso3 = toupper(trimws(as.character(iso3))),
-    amr_ncc_metric = case_when(
+    has_glass_profile = !is.na(glass_status) | !is.na(data_sumbitted) | !is.na(amr_enrolled),
+    glass_enrollment_metric = case_when(
+      str_detect(glass_status, "Not Enrolled") ~ "Not Enrolled",
+      str_detect(glass_status, "Enrolled") ~ "Enrolled",
+      str_detect(amr_enrolled, "^Y") ~ "Enrolled",
+      str_detect(amr_enrolled, "^N") ~ "Not Enrolled",
+      has_glass_profile ~ "Not Reported",
+      TRUE ~ NA_character_
+    ),
+    glass_data_submission_metric = case_when(
+      str_detect(glass_status, "Not Enrolled") ~ "Not Enrolled",
+      str_detect(glass_status, "Data submitted") ~ "Submitted",
+      str_detect(glass_status, "No data submitted") ~ "No Submission",
+      data_sumbitted == "submitted_data" ~ "Submitted",
+      has_glass_profile ~ "Not Reported",
+      TRUE ~ NA_character_
+    ),
+    ncc_metric = case_when(
       amr_ncc == "Established" ~ "Established",
       amr_ncc == "Establishment in progress" ~ "In Progress",
       amr_ncc == "Not established" ~ "Not Established",
@@ -106,44 +162,35 @@ combined_data <- glass_data_2023 %>%
       amr_ncc == "Not reported" ~ "Not Reported",
       TRUE ~ NA_character_
     ),
-    amr_nrl_metric = case_when(
+    nrl_glass_metric = case_when(
       amr_nrl == "Established" ~ "Established",
       amr_nrl == "Not established" ~ "Not Established",
       amr_nrl == "Not_enrolled" ~ "Not Enrolled",
       amr_nrl == "Not reported" ~ "Not Reported",
       TRUE ~ NA_character_
     ),
-    eqa_to_nrl_metric = case_when(
-      eqa_to_nrl == "Provided" ~ "Provided",
-      eqa_to_nrl == "Not provided" ~ "Not Provided",
-      eqa_to_nrl == "Not_enrolled" ~ "Not Enrolled",
-      eqa_to_nrl == "Not reported" ~ "Not Reported",
+    nrl_tracss_metric = case_when(
+      str_detect(national_reference_lab, "^Yes") ~ "Established",
+      str_detect(national_reference_lab, "^No") ~ "Not Established",
+      str_detect(national_reference_lab, "^Unknown") ~ "Not Reported",
       TRUE ~ NA_character_
     ),
-    amr_ast_standards_metric = case_when(
-      amr_ast_standards == "CLSI" ~ "CLSI",
-      amr_ast_standards == "EUCAST" ~ "EUCAST",
-      amr_ast_standards == "EUCAST|CLSI" ~ "EUCAST and CLSI",
-      amr_ast_standards == "O" ~ "Other Standard",
-      amr_ast_standards == "Not_enrolled" ~ "Not Enrolled",
-      amr_ast_standards == "Not reported" ~ "Not Reported",
-      TRUE ~ NA_character_
-    ),
-    amr_eqa_glass_labs_metric = case_when(
-      amr_eqa_glass_labs == "Provided to all laboratories" ~ "Provided to All Laboratories",
-      amr_eqa_glass_labs == "Not provided to all laboratories" ~ "Not Provided to All Laboratories",
-      amr_eqa_glass_labs == "Not_enrolled" ~ "Not Enrolled",
-      amr_eqa_glass_labs == "Not reported" ~ "Not Reported",
+    nrl_metric = coalesce(nrl_glass_metric, nrl_tracss_metric),
+    surveillance_network_metric = case_when(
+      str_detect(surveillance_network, "^[AB]") ~ "No",
+      str_detect(surveillance_network, "^C") ~ "Partial",
+      str_detect(surveillance_network, "^[DE]") ~ "Yes",
+      str_detect(surveillance_network, "^\\s*$") ~ "Not Reported",
       TRUE ~ NA_character_
     )
   ) %>%
   select(
-    iso3, year,
-    amr_ncc_metric,
-    amr_nrl_metric,
-    eqa_to_nrl_metric,
-    amr_ast_standards_metric,
-    amr_eqa_glass_labs_metric
+    iso3,
+    glass_enrollment_metric,
+    glass_data_submission_metric,
+    ncc_metric,
+    nrl_metric,
+    surveillance_network_metric
   )
 
 #### MAPPING SECTION ####
@@ -201,6 +248,17 @@ fleming_bg_colour <- "grey92" #Non flemming countries
 fleming_na_colour <- "grey50"
 
 colours <- list(
+  enrollment = c(
+    "Enrolled" = "#1B9E77",
+    "Not Enrolled" = "#D95F02",
+    "Not Reported" = "#9E9E9E"
+  ),
+  submission = c(
+    "Submitted" = "#1B9E77",
+    "No Submission" = "#E6AB02",
+    "Not Enrolled" = "#D95F02",
+    "Not Reported" = "#9E9E9E"
+  ),
   ncc = c(
     "Established" = "#1B9E77",
     "In Progress" = "#E6AB02",
@@ -214,24 +272,10 @@ colours <- list(
     "Not Enrolled" = "#7570B3",
     "Not Reported" = "#9E9E9E"
   ),
-  eqa_nrl = c(
-    "Provided" = "#1B9E77",
-    "Not Provided" = "#D95F02",
-    "Not Enrolled" = "#7570B3",
-    "Not Reported" = "#9E9E9E"
-  ),
-  ast = c(
-    "EUCAST" = "#1B9E77",
-    "CLSI" = "#2C7FB8",
-    "EUCAST and CLSI" = "#66A61E",
-    "Other Standard" = "#E6AB02",
-    "Not Enrolled" = "#7570B3",
-    "Not Reported" = "#9E9E9E"
-  ),
-  eqa_glass = c(
-    "Provided to All Laboratories" = "#1B9E77",
-    "Not Provided to All Laboratories" = "#E6AB02",
-    "Not Enrolled" = "#7570B3",
+  network = c(
+    "Yes" = "#1B9E77",
+    "Partial" = "#E6AB02",
+    "No" = "#D95F02",
     "Not Reported" = "#9E9E9E"
   )
 )
@@ -350,39 +394,39 @@ all_regions <- c("Worldwide", names(regions))
 
 metrics_capacity <- list(
   list(
-    col = "amr_ncc_metric",
-    title = "AMR National Coordinating Centre (NCC)",
+    col = "glass_enrollment_metric",
+    title = "Enrollment in GLASS",
+    palette = "enrollment",
+    levels = c("Enrolled", "Not Enrolled", "Not Reported")
+  ),
+  list(
+    col = "glass_data_submission_metric",
+    title = "Data Submission to GLASS",
+    palette = "submission",
+    levels = c("Submitted", "No Submission", "Not Enrolled", "Not Reported")
+  ),
+  list(
+    col = "ncc_metric",
+    title = "National Coordinating Centre",
     palette = "ncc",
     levels = c("Established", "In Progress", "Not Established", "Not Enrolled", "Not Reported")
   ),
   list(
-    col = "amr_nrl_metric",
-    title = "AMR National Reference Laboratory (NRL)",
+    col = "nrl_metric",
+    title = "National Reference Laboratory",
     palette = "nrl",
     levels = c("Established", "Not Established", "Not Enrolled", "Not Reported")
   ),
   list(
-    col = "eqa_to_nrl_metric",
-    title = "External Quality Assessment Provided to NRL",
-    palette = "eqa_nrl",
-    levels = c("Provided", "Not Provided", "Not Enrolled", "Not Reported")
-  ),
-  list(
-    col = "amr_ast_standards_metric",
-    title = "AST Standards Used for AMR Testing",
-    palette = "ast",
-    levels = c("EUCAST", "CLSI", "EUCAST and CLSI", "Other Standard", "Not Enrolled", "Not Reported")
-  ),
-  list(
-    col = "amr_eqa_glass_labs_metric",
-    title = "EQA Coverage Across GLASS Laboratories",
-    palette = "eqa_glass",
-    levels = c("Provided to All Laboratories", "Not Provided to All Laboratories", "Not Enrolled", "Not Reported")
+    col = "surveillance_network_metric",
+    title = "Surveillance Network",
+    palette = "network",
+    levels = c("Yes", "Partial", "No", "Not Reported")
   )
 )
 
 #### Run execution loop ####
-output_root <- "GLASS_2023_capacity_maps"
+output_root <- "combined_capacity_maps"
 individual_dir <- file.path(output_root, "individual_maps")
 panel_dir <- file.path(output_root, "capacity_panels")
 dir.create(individual_dir, recursive = TRUE, showWarnings = FALSE)
