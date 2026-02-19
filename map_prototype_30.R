@@ -372,6 +372,7 @@ theme_map <- function() {
 #### Create Make Map Function ####
 make_map <- function(data, fill_col, title, palette, levels_vec, label_map = NULL, is_fleming = FALSE) {
   df <- data %>% mutate(.temp_fill = as.character(.data[[fill_col]]))
+  is_genomics <- str_detect(fill_col, "genomes")
   df <- df %>%
     mutate(.temp_fill = case_when(
       .temp_fill == "Not Reported" ~ "NA",
@@ -379,14 +380,24 @@ make_map <- function(data, fill_col, title, palette, levels_vec, label_map = NUL
     ))
   
   if (is_fleming) {
-    df <- df %>%
-      mutate(.temp_fill = case_when(
-        .temp_fill == "CONTEXT" ~ "CONTEXT",
-        (is.na(.temp_fill) | .temp_fill == "NA") & (iso3 %in% fleming_iso3_list) ~ "NA_FLEMING",
-        is.na(.temp_fill) | .temp_fill == "NA" ~ "NA",
-        TRUE ~ .temp_fill
-      ))
-    levels_vec <- c(levels_vec, "CONTEXT", "NA_FLEMING", "NA")
+    if (is_genomics) {
+      df <- df %>%
+        mutate(.temp_fill = case_when(
+          .temp_fill == "CONTEXT" ~ "CONTEXT",
+          is.na(.temp_fill) | .temp_fill == "NA" ~ "NA",
+          TRUE ~ .temp_fill
+        ))
+      levels_vec <- c(levels_vec, "CONTEXT", "NA")
+    } else {
+      df <- df %>%
+        mutate(.temp_fill = case_when(
+          .temp_fill == "CONTEXT" ~ "CONTEXT",
+          (is.na(.temp_fill) | .temp_fill == "NA") & (iso3 %in% fleming_iso3_list) ~ "NA_FLEMING",
+          is.na(.temp_fill) | .temp_fill == "NA" ~ "NA",
+          TRUE ~ .temp_fill
+        ))
+      levels_vec <- c(levels_vec, "CONTEXT", "NA_FLEMING", "NA")
+    }
   } else {
     df <- df %>%
       mutate(.temp_fill = case_when(
@@ -410,9 +421,13 @@ make_map <- function(data, fill_col, title, palette, levels_vec, label_map = NUL
   final_pal <- palette
   if (is_fleming) {
     final_pal["CONTEXT"] <- "#F5F5F5"
-    final_pal["NA_FLEMING"] <- "#707070"
+    if (!is_genomics) {
+      final_pal["NA_FLEMING"] <- "#707070"
+    }
+    final_pal["NA"] <- "#8F8F8F"
+  } else {
+    final_pal["NA"] <- "#E0E0E0"
   }
-  final_pal["NA"] <- "#E0E0E0"
   
   # 5. Legend Display Logic
   label_vec <- setNames(levels_vec, levels_vec)
@@ -422,11 +437,17 @@ make_map <- function(data, fill_col, title, palette, levels_vec, label_map = NUL
   }
   if (is_fleming) {
     label_vec["CONTEXT"] <- "Non-Fleming"
-    label_vec["NA_FLEMING"] <- "No Data"
+    if (!is_genomics) {
+      label_vec["NA_FLEMING"] <- "No Data"
+    }
   }
   
   if (is_fleming) {
-    plot_breaks <- setdiff(levels_vec, "NA") 
+    if (is_genomics) {
+      plot_breaks <- levels_vec
+    } else {
+      plot_breaks <- setdiff(levels_vec, "NA")
+    }
   } else {
     plot_breaks <- levels_vec
   }
