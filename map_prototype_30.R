@@ -364,6 +364,10 @@ theme_map <- function() {
     theme(
       plot.background   = element_rect(fill = "white", colour = NA),
       legend.position   = "right",
+      legend.direction  = "vertical",
+      legend.box        = "vertical",
+      legend.key.width  = grid::unit(6, "mm"),
+      legend.key.height = grid::unit(5, "mm"),
       plot.title        = element_text(size = 14, face = "bold", hjust = 0.5),
       plot.margin       = margin(5,5,5,5, "mm")
     )
@@ -477,7 +481,15 @@ make_map <- function(data, fill_col, title, palette, levels_vec, label_map = NUL
 #### Create Panel Functions ####
 make_panel <- function(data, region_name, palettes, metric_definitions, ncol = 3, is_fleming = FALSE) {
   plots <- lapply(metric_definitions, function(m) {
-    make_map(
+    p_full <- make_map(
+      data = data,
+      fill_col = m$col,
+      title = m$title,
+      palette = palettes[[m$palette]],
+      levels_vec = m$levels,
+      is_fleming = is_fleming
+    )
+    p_map_only <- make_map(
       data = data,
       fill_col = m$col,
       title = m$title,
@@ -485,6 +497,13 @@ make_panel <- function(data, region_name, palettes, metric_definitions, ncol = 3
       levels_vec = m$levels,
       is_fleming = is_fleming,
       show_legend = FALSE
+    )
+    p_legend <- cowplot::get_legend(p_full)
+    plot_grid(
+      p_map_only,
+      ggdraw(p_legend),
+      ncol = 2,
+      rel_widths = c(1, 0.38)
     )
   })
   plot_grid(
