@@ -224,10 +224,13 @@ make_genome_metric <- function(x) {
     is.na(num) ~ NA_character_,
     num == 0 ~ NA_character_,
     num >= 1 & num <= 50 ~ "1-50",
-    num >= 51 & num <= 200 ~ "51-200",
-    num >= 201 & num <= 1000 ~ "201-1000",
-    num >= 1001 & num <= 5000 ~ "1001-5000",
-    num >= 5001 ~ "5001+",
+    num >= 51 & num <= 100 ~ "50-100",
+    num >= 101 & num <= 500 ~ "100-500",
+    num >= 501 & num <= 1000 ~ "500-1000",
+    num >= 1001 & num <= 5000 ~ "1000-5000",
+    num >= 5001 & num <= 10000 ~ "5000-10000",
+    num >= 10001 & num <= 50000 ~ "10000-50000",
+    num >= 50001 ~ "50000+",
     TRUE ~ NA_character_
   )
 }
@@ -344,11 +347,14 @@ colours <- list(
     "No" = "#D95F02"
   ),
   genomics = c(
-    "1-50" = "#F7FCFD",
-    "51-200" = "#CFECE6",
-    "201-1000" = "#84D2C5",
-    "1001-5000" = "#2CA7A0",
-    "5001+" = "#0B525B"
+    "1-50" = "#F7FBFF",
+    "50-100" = "#DEEBF7",
+    "100-500" = "#C6DBEF",
+    "500-1000" = "#9ECAE1",
+    "1000-5000" = "#6BAED6",
+    "5000-10000" = "#3182BD",
+    "10000-50000" = "#08519C",
+    "50000+" = "#08306B"
   )
 )
 
@@ -501,13 +507,13 @@ metrics_genomics <- list(
     col = "number_of_priority_genomes_metric",
     title = "Priority Pathogen Genomes",
     palette = "genomics",
-    levels = c("1-50", "51-200", "201-1000", "1001-5000", "5001+")
+    levels = c("1-50", "50-100", "100-500", "500-1000", "1000-5000", "5000-10000", "10000-50000", "50000+")
   ),
   list(
     col = "number_of_critical_genomes_metric",
     title = "Critical Priority Pathogen Genomes",
     palette = "genomics",
-    levels = c("1-50", "51-200", "201-1000", "1001-5000", "5001+")
+    levels = c("1-50", "50-100", "100-500", "500-1000", "1000-5000", "5000-10000", "10000-50000", "50000+")
   )
 )
 
