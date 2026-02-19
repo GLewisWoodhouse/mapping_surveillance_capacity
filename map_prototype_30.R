@@ -370,7 +370,7 @@ theme_map <- function() {
 }
 
 #### Create Make Map Function ####
-make_map <- function(data, fill_col, title, palette, levels_vec, label_map = NULL, is_fleming = FALSE) {
+make_map <- function(data, fill_col, title, palette, levels_vec, label_map = NULL, is_fleming = FALSE, show_legend = TRUE) {
   df <- data %>% mutate(.temp_fill = as.character(.data[[fill_col]]))
   is_genomics <- str_detect(fill_col, "genomes")
   df <- df %>%
@@ -454,6 +454,12 @@ make_map <- function(data, fill_col, title, palette, levels_vec, label_map = NUL
   plot_labels <- label_vec[plot_breaks]
   
   # 6. Plot
+  legend_guide <- if (show_legend) {
+    guide_legend(override.aes = list(colour = "grey20", linewidth = 0.2))
+  } else {
+    "none"
+  }
+  
   ggplot(df) +
     geom_sf(aes(fill = .temp_fill), colour = "grey20", linewidth = 0.1) +
     scale_fill_manual(
@@ -461,7 +467,7 @@ make_map <- function(data, fill_col, title, palette, levels_vec, label_map = NUL
       breaks = plot_breaks, 
       labels = plot_labels, 
       drop = FALSE,
-      guide = guide_legend(override.aes = list(colour = "grey20", linewidth = 0.2))
+      guide = legend_guide
     ) +
     labs(title = title, fill = NULL) + 
     theme_map()
@@ -477,7 +483,8 @@ make_panel <- function(data, region_name, palettes, metric_definitions, ncol = 3
       title = m$title,
       palette = palettes[[m$palette]],
       levels_vec = m$levels,
-      is_fleming = is_fleming
+      is_fleming = is_fleming,
+      show_legend = FALSE
     )
   })
   plot_grid(
